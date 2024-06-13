@@ -1010,6 +1010,7 @@ class firehose(metaclass=LogBase):
                 else:
                     self.cfg.Version = 0
                     self.warning("Couldn't detect Version")
+            self.verify_vip()
             self.info(f"TargetName={self.cfg.TargetName}")
             self.info(f"MemoryName={self.cfg.MemoryName}")
             self.info(f"Version={self.cfg.Version}")
@@ -1053,6 +1054,22 @@ class firehose(metaclass=LogBase):
                         self.nothing.ntprojectverify()
             self.luns = self.getluns(self.args)
             return True
+
+    def verify_vip(self):
+        try:
+            with open(self.cfg.programmer + ".verify", "rb") as f:
+                data = f.read()
+        except:
+            return
+        # pad to 4kb packet
+        data = (data + bytes(4096))[:4096]
+        # TODO error handling by checking for ACKs
+        cmd = "<?xml version=\"1.0\" ?><data><getsigndata value=\"ping\" /></data>"
+        self.xmlsend(cmd)
+        cmd = "<?xml version=\"1.0\" ?><data><verify value=\"ping\" /></data>"
+        self.xmlsend(cmd)
+        self.xmlsend(data)
+        self.cmd_nop()
 
     def getlunsize(self, lun):
         if lun not in self.lunsizes:
@@ -1169,6 +1186,14 @@ class firehose(metaclass=LogBase):
                                 if val != "":
                                     self.supported_functions.append(val)
                             supfunc = False
+                if "receiving the partition info" in line.lower():
+                    try:
+                        with open(self.cfg.programmer + ".digests", "rb") as f:
+                            data = f.read()
+                            self.info(f"Sending VIP partition of {len(data)} bytes")
+                            self.cdc.write(data)
+                    except FileNotFoundError:
+                        self.warning("VIP partition info requested; none provided")
             try:
                 if os.path.exists(self.cfg.programmer):
                     data = open(self.cfg.programmer, "rb").read()
@@ -1187,7 +1212,8 @@ class firehose(metaclass=LogBase):
                         open("edl_config.json", "w").write(json.dumps(state))
                     else:
                         self.supported_functions = data["supported_functions"]
-                        self.cfg.programmer = data["programmer"]
+                        if data["programmer"]:
+                            self.cfg.programmer = data["programmer"]
                 else:
                     open("edl_config.json", "w").write(json.dumps(state))
                 if "001920e101cf0000_fa2836525c2aad8a_fhprg.bin" in self.cfg.programmer:
