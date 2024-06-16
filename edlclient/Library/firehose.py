@@ -1056,13 +1056,20 @@ class firehose(metaclass=LogBase):
             return True
 
     def verify_vip(self):
+        sigfile = self.cfg.programmer.rsplit('.', 1)[0] + ".sig"
         try:
-            with open(self.cfg.programmer + ".verify", "rb") as f:
+            with open(sigfile, "rb") as f:
                 data = f.read()
-        except:
-            return
+        except FileNotFoundError:
+                self.warning("Using dummy VIP signature, if this doesn't work, you need to put base64 string from /api/tools/sign Oppo API into " + sigfile)
+                data = bytes(256)
+        # If its wrong length, assume file contents are base64 encoded
+        if len(data) != 256:
+            data = base64.b64decode(data)
+            if len(data) != 256:
+                self.error("Wrong signature provided (must decode to 256 bytes)")
         # pad to 4kb packet
-        data = (data + bytes(4096))[:4096]
+        data = data + bytes(4096-len(data))
         # TODO error handling by checking for ACKs
         cmd = "<?xml version=\"1.0\" ?><data><getsigndata value=\"ping\" /></data>"
         self.xmlsend(cmd)
@@ -1188,9 +1195,10 @@ class firehose(metaclass=LogBase):
                             supfunc = False
                 if "receiving the partition info" in line.lower():
                     try:
-                        with open(self.cfg.programmer + ".digests", "rb") as f:
+                        vipart = self.cfg.programmer.rsplit('.', 1)[0] + ".vip"
+                        with open(vipart, "rb") as f:
                             data = f.read()
-                            self.info(f"Sending VIP partition of {len(data)} bytes")
+                            self.info(f"Sending VIP partition {vipart} {len(data)} bytes")
                             self.cdc.write(data)
                     except FileNotFoundError:
                         self.warning("VIP partition info requested; none provided")
